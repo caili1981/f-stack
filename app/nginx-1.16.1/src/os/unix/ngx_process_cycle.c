@@ -513,7 +513,7 @@ ngx_start_worker_processes(ngx_cycle_t *cycle, ngx_int_t n, ngx_int_t type)
             struct timespec ts;
             (void) clock_gettime(CLOCK_REALTIME,&ts);
             
-            ts.tv_sec  += 15; //15s
+            ts.tv_sec  += 45; //15s
             while ((r = sem_timedwait(ngx_ff_worker_sem, &ts)) == -1
                     && errno == EINTR)
             {
