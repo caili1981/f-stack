@@ -96,6 +96,7 @@ ff_freebsd_init(void)
     pcpu_init(pcpup, 0, sizeof(struct pcpu));
     CPU_SET(0, &all_cpus);
 
+	/* 设置 curthread */
     ff_init_thread0();
 
     boot_pages = 16;

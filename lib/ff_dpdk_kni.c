@@ -473,6 +473,7 @@ ff_kni_alloc(uint16_t port_id, unsigned socket_id,
     struct rte_mempool *mbuf_pool, unsigned ring_queue_size)
 {
     if (rte_eal_process_type() == RTE_PROC_PRIMARY) {
+		/* 只有主程序需要创建kni接口 */
         struct rte_kni_conf conf;
         struct rte_kni_ops ops;
         struct rte_eth_dev_info dev_info;

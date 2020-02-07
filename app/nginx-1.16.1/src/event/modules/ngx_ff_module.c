@@ -407,6 +407,7 @@ setsockopt (int sockfd, int level, int optname,
     return SYSCALL(setsockopt)(sockfd, level, optname, optval, optlen);
 }
 
+/* 这个接口采用f-stack封装，以此来区分f-stack所产生的fd与linux的fd */
 int
 accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 {

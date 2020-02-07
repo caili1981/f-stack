@@ -239,6 +239,7 @@ ff_veth_process_packet(void *arg, void *m)
 
     mb->m_pkthdr.rcvif = ifp;
 
+	/* 进入freebsd的网络协议栈ether_input */
     ifp->if_input(ifp, mb);
 }
 
@@ -277,6 +278,7 @@ ff_veth_setaddr(struct ff_veth_softc *sc)
 
     struct socket *so = NULL;
     socreate(AF_INET, &so, SOCK_DGRAM, 0, curthread->td_ucred, curthread);
+	/* freebsd函数，设置接口地址 */
     int ret = ifioctl(so, SIOCAIFADDR, (caddr_t)&req, curthread);
 
     sofree(so);
@@ -305,6 +307,7 @@ ff_veth_set_gateway(struct ff_veth_softc *sc)
     nm.sin_family = AF_INET;
     nm.sin_addr.s_addr = 0;
 
+	/* 这是freebsd的函数，创建默认路由 */
     return rtrequest_fib(RTM_ADD, (struct sockaddr *)&dst, (struct sockaddr *)&gw,
         (struct sockaddr *)&nm, RTF_GATEWAY, NULL, RT_DEFAULT_FIB);
 }
@@ -314,6 +317,7 @@ ff_veth_setup_interface(struct ff_veth_softc *sc, struct ff_port_cfg *cfg)
 {
     struct ifnet *ifp;
 
+	/* 创建接口, freebsd函数 */
     ifp = sc->ifp = if_alloc(IFT_ETHER);
 
     ifp->if_init = ff_veth_init;
@@ -323,8 +327,10 @@ ff_veth_setup_interface(struct ff_veth_softc *sc, struct ff_port_cfg *cfg)
     ifp->if_flags = IFF_BROADCAST | IFF_SIMPLEX | IFF_MULTICAST;
     ifp->if_ioctl = ff_veth_ioctl;
     ifp->if_start = ff_veth_start;
+	/* 设置发送接口为ff_veth_transmit, 从而通过veth口将报文发送出去 */
     ifp->if_transmit = ff_veth_transmit;
-    ifp->if_qflush = ff_veth_qflush;
+    ifp->if_qflush = ff_veth_qflush; /* 空函数 */
+	/* eth初始化, 设置接口的处理函数为freebsd的ether_input函数 */
     ether_ifattach(ifp, sc->mac);
 
     if (cfg->hw_features.rx_csum) {
@@ -355,6 +361,8 @@ ff_veth_setup_interface(struct ff_veth_softc *sc, struct ff_port_cfg *cfg)
     if (ret != 0) {
         printf("ff_veth_setaddr failed\n");
     }
+
+	/* 创建默认veth的默认路由 */
     ret = ff_veth_set_gateway(sc);
     if (ret != 0) {
         printf("ff_veth_set_gateway failed\n");

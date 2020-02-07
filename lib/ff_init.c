@@ -36,18 +36,23 @@ int
 ff_init(int argc, char * const argv[])
 {
     int ret;
+	
+	/* 读取config.ini的配置文件, 并据此生成dpdk的启动参数 */
     ret = ff_load_config(argc, argv);
     if (ret < 0)
         exit(1);
 
+	/* 启动dpdk */
     ret = ff_dpdk_init(dpdk_argc, (char **)&dpdk_argv);
     if (ret < 0)
         exit(1);
 
+	/* 初始化freebsd协议栈 */
     ret = ff_freebsd_init();
     if (ret < 0)
         exit(1);
 
+	/* 启动veth接口 */
     ret = ff_dpdk_if_up();
     if (ret < 0)
         exit(1);

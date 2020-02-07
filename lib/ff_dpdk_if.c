@@ -581,7 +581,7 @@ init_port_start(void)
                 addr.addr_bytes, ETHER_ADDR_LEN);
 
             /* Set RSS mode */
-            uint64_t default_rss_hf = ETH_RSS_PROTO_MASK;
+            uint64_t default_rss_hf = ETH_RSS_PROTO_MASK; /* IPv4/TCP/UDP/SCTP等 */
             port_conf.rxmode.mq_mode = ETH_MQ_RX_RSS;
             port_conf.rx_adv_conf.rss_conf.rss_hf = default_rss_hf;
             if (dev_info.hash_key_size == 52) {
@@ -863,6 +863,7 @@ ff_veth_input(const struct ff_dpdk_if_context *ctx, struct rte_mbuf *pkt)
 {
     uint8_t rx_csum = ctx->hw_features.rx_csum;
     if (rx_csum) {
+		/* 校验和, 从docker里出来是可能没有校验和的 */
         if (pkt->ol_flags & (PKT_RX_IP_CKSUM_BAD | PKT_RX_L4_CKSUM_BAD)) {
             rte_pktmbuf_free(pkt);
             return;
@@ -885,6 +886,7 @@ ff_veth_input(const struct ff_dpdk_if_context *ctx, struct rte_mbuf *pkt)
     struct rte_mbuf *pn = pkt->next;
     void *prev = hdr;
     while(pn != NULL) {
+		/* 这一段是干嘛用的？*/
         data = rte_pktmbuf_mtod(pn, void*);
         len = rte_pktmbuf_data_len(pn);
 
@@ -901,6 +903,13 @@ ff_veth_input(const struct ff_dpdk_if_context *ctx, struct rte_mbuf *pkt)
     ff_veth_process_packet(ctx->ifp, hdr);
 }
 
+
+/* 
+ * 确定哪些报文需要发送给内核 
+ * 1. ARP/NDP报文.
+ * 2. 在config.ini里定义的tcp/udp端口.
+ *    - 通过bitmap来实现快速查找.
+ */
 static enum FilterReturn
 protocol_filter(const void *data, uint16_t len)
 {
@@ -1018,6 +1027,7 @@ process_packets(uint16_t port_id, uint16_t queue_id, struct rte_mbuf **bufs,
         struct rte_mbuf *rtem = bufs[i];
 
         if (unlikely(qconf->pcap[port_id] != NULL)) {
+			/* 若是接口设置了pcap，那么将报文内容写入文件 */
             if (!pkts_from_ring) {
                 ff_dump_packets(qconf->pcap[port_id], rtem);
             }
@@ -1031,7 +1041,7 @@ process_packets(uint16_t port_id, uint16_t queue_id, struct rte_mbuf **bufs,
             ff_traffic.rx_bytes += len;
         }
 
-        if (!pkts_from_ring && packet_dispatcher) {
+        if (!pkts_from_ring && packet_dispatcher) { /* 一般情况下packet_dispatcher = 0 */
             int ret = (*packet_dispatcher)(data, &len, queue_id, nb_queues);
             if (ret == FF_DISPATCH_RESPONSE) {
                 rte_pktmbuf_pkt_len(rtem) = rte_pktmbuf_data_len(rtem) = len;
@@ -1068,6 +1078,10 @@ process_packets(uint16_t port_id, uint16_t queue_id, struct rte_mbuf **bufs,
             }
         }
 
+		/* 
+		 * 查看数据报文的协议，如果不是ARP/NDP协议，或者进入kni接口的报文，
+		 * 则正常处理, 否则，调用相应的函数处理
+		 */
         enum FilterReturn filter = protocol_filter(data, len);
 #ifdef INET6
         if (filter == FILTER_ARP || filter == FILTER_NDP) {
@@ -1115,6 +1129,7 @@ process_packets(uint16_t port_id, uint16_t queue_id, struct rte_mbuf **bufs,
             ff_kni_enqueue(port_id, rtem);
 #endif
         } else {
+			/* 普通数据报文的处理 */
             ff_veth_input(ctx, rtem);
         }
     }
@@ -1377,6 +1392,7 @@ send_single_packet(struct rte_mbuf *m, uint8_t port)
     return 0;
 }
 
+/* ff_veth_transmit是协议栈的回调函数， 它调用此函数进行真正的报文发送*/
 int
 ff_dpdk_if_send(struct ff_dpdk_if_context *ctx, void *m,
     int total)
@@ -1405,6 +1421,7 @@ ff_dpdk_if_send(struct ff_dpdk_if_context *ctx, void *m,
 
     int off = 0;
     struct rte_mbuf *cur = head, *prev = NULL;
+	/* 将freebsd的mbuf转换成dpdk的rte_mbuf */
     while(total > 0) {
         if (cur == NULL) {
             cur = rte_pktmbuf_alloc(mbuf_pool);
@@ -1423,6 +1440,7 @@ ff_dpdk_if_send(struct ff_dpdk_if_context *ctx, void *m,
         prev = cur;
         void *data = rte_pktmbuf_mtod(cur, void*);
         int len = total > RTE_MBUF_DEFAULT_DATAROOM ? RTE_MBUF_DEFAULT_DATAROOM : total;
+		/* 居然有内存的拷贝，性能可能会因此下降, 能否实现零拷贝??? */
         int ret = ff_mbuf_copydata(m, data, off, len);
         if (ret < 0) {
             rte_pktmbuf_free(head);
@@ -1505,6 +1523,12 @@ ff_dpdk_if_send(struct ff_dpdk_if_context *ctx, void *m,
     return send_single_packet(head, ctx->port_id);
 }
 
+/* 
+ * 将用户的处理函数封装进dpdk中，从而实现:
+ * 1. 接收报文，将报文放入协议栈.
+ * 2. 调用用户处理函数，处理协议栈传递过来的报文
+ */
+  
 static int
 main_loop(void *arg)
 {
@@ -1636,6 +1660,7 @@ main_loop(void *arg)
     return 0;
 }
 
+/* 处理freebsd 的接口，使freebsd协议栈能够正常处理报文 */
 int
 ff_dpdk_if_up(void) {
     int i;
@@ -1653,6 +1678,7 @@ ff_dpdk_if_up(void) {
     return 0;
 }
 
+/* remote launch 一个 工作线程, 进入loop循环。*/
 void
 ff_dpdk_run(loop_func_t loop, void *arg) {
     struct loop_routine *lr = rte_malloc(NULL,

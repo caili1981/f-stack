@@ -952,9 +952,11 @@ ngx_worker_process_cycle(ngx_cycle_t *cycle, void *data)
     ngx_setproctitle("worker process");
 
 #if (NGX_HAVE_FSTACK)
+	/* 启动工作线程，处理主体任务 */
     ff_run(ngx_worker_process_cycle_loop, (void *)cycle);
 #else
 
+	/* 当前main thread 被挂起，直到工作线程处理完成, 然后完成推出操作 */
     for ( ;; ) {
 
         if (ngx_exiting) {
